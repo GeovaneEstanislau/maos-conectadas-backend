@@ -3,64 +3,68 @@ import sqlite3 from "sqlite3";
 import { open } from "sqlite";
 
 const app = express();
+const PORT = process.env.PORT || 3000;
+
 app.use(express.json());
 
-// Banco de dados
 let db;
-(async () => {
+
+async function initDB() {
   db = await open({
     filename: "./db.sqlite",
-    driver: sqlite3.Database,
+    driver: sqlite3.Database
   });
-})();
 
-// Rotas
-app.get("/", (req, res) => {
-  res.send("🚀 Backend Mãos Conectadas rodando!");
-});
+  // Cria tabela se não existir
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS quizzes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      pergunta TEXT,
+      opcoes TEXT,
+      resposta INTEGER
+    );
+  `);
 
-// Lista de matérias
-app.get("/api/materias", async (req, res) => {
-  const materias = await db.all("SELECT * FROM materias");
-  res.json(materias);
-});
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS respostas (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      alunoId INTEGER,
+      quizId INTEGER,
+      resposta INTEGER,
+      correto BOOLEAN
+    );
+  `);
+}
 
-// Pegar um quiz aleatório por matéria
-app.get("/api/quizzes/:materiaId", async (req, res) => {
-  const { materiaId } = req.params;
-  const quiz = await db.get(
-    "SELECT * FROM quizzes WHERE materia_id = ? ORDER BY RANDOM() LIMIT 1",
-    [materiaId]
-  );
-
-  if (!quiz) return res.status(404).json({ error: "Nenhum quiz encontrado" });
-
-  res.json({
-    id: quiz.id,
-    pergunta: quiz.pergunta,
-    opcoes: JSON.parse(quiz.opcoes),
-  });
-});
-
-// Responder um quiz
-app.post("/api/quizzes/responder", async (req, res) => {
-  const { quizId, resposta, alunoId } = req.body;
-
-  const quiz = await db.get("SELECT * FROM quizzes WHERE id = ?", [quizId]);
+// Rota: pegar quiz por ID
+app.get("/api/quizzes/:id", async (req, res) => {
+  const quiz = await db.get("SELECT * FROM quizzes WHERE id = ?", [req.params.id]);
   if (!quiz) return res.status(404).json({ error: "Quiz não encontrado" });
 
-  const correto = quiz.resposta_correta === resposta ? 1 : 0;
+  quiz.opcoes = JSON.parse(quiz.opcoes); // transforma de texto para array
+  res.json(quiz);
+});
+
+// Rota: responder quiz
+app.post("/api/quizzes/responder", async (req, res) => {
+  const { quizId, resposta, alunoId } = req.body;
+  const quiz = await db.get("SELECT * FROM quizzes WHERE id = ?", [quizId]);
+
+  if (!quiz) return res.status(404).json({ error: "Quiz não encontrado" });
+
+  const correto = Number(resposta) === Number(quiz.resposta);
 
   await db.run(
-    "INSERT INTO respostas (aluno_id, quiz_id, resposta, correto) VALUES (?, ?, ?, ?)",
-    [alunoId, quizId, resposta, correto]
+    "INSERT INTO respostas (alunoId, quizId, resposta, correto) VALUES (?, ?, ?, ?)",
+    [alunoId, quizId, resposta, correto ? 1 : 0]
   );
 
   res.json({ correto });
 });
 
-// Porta
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log("✅ Servidor rodando na porta " + PORT);
+// Inicia servidor
+initDB().then(() => {
+  app.listen(PORT, () => {
+    console.log(`Servidor rodando na porta ${PORT}`);
+  });
 });
