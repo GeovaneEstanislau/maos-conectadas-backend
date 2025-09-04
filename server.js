@@ -1,70 +1,58 @@
 import express from "express";
 import sqlite3 from "sqlite3";
 import { open } from "sqlite";
+import dotenv from "dotenv";
+import fetch from "node-fetch";
+
+dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT || 3000;
-
 app.use(express.json());
 
+// Inicialização do banco
 let db;
-
-async function initDB() {
+const initDb = async () => {
   db = await open({
-    filename: "./db.sqlite",
+    filename: "./database.sqlite",
     driver: sqlite3.Database
   });
 
-  // Cria tabela se não existir
   await db.exec(`
-    CREATE TABLE IF NOT EXISTS quizzes (
+    CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      pergunta TEXT,
-      opcoes TEXT,
-      resposta INTEGER
+      name TEXT
     );
   `);
+};
+await initDb();
 
-  await db.exec(`
-    CREATE TABLE IF NOT EXISTS respostas (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      alunoId INTEGER,
-      quizId INTEGER,
-      resposta INTEGER,
-      correto BOOLEAN
-    );
-  `);
-}
-
-// Rota: pegar quiz por ID
-app.get("/api/quizzes/:id", async (req, res) => {
-  const quiz = await db.get("SELECT * FROM quizzes WHERE id = ?", [req.params.id]);
-  if (!quiz) return res.status(404).json({ error: "Quiz não encontrado" });
-
-  quiz.opcoes = JSON.parse(quiz.opcoes); // transforma de texto para array
-  res.json(quiz);
+// Rota básica
+app.get("/", (req, res) => {
+  res.send("🚀 API Mãos Conectadas funcionando!");
 });
 
-// Rota: responder quiz
-app.post("/api/quizzes/responder", async (req, res) => {
-  const { quizId, resposta, alunoId } = req.body;
-  const quiz = await db.get("SELECT * FROM quizzes WHERE id = ?", [quizId]);
+// Rota de teste do HuggingFace
+app.post("/chat", async (req, res) => {
+  const { message } = req.body;
+  try {
+    const response = await fetch("https://api-inference.huggingface.co/models/gpt2", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${process.env.HF_API_KEY}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ inputs: message })
+    });
 
-  if (!quiz) return res.status(404).json({ error: "Quiz não encontrado" });
-
-  const correto = Number(resposta) === Number(quiz.resposta);
-
-  await db.run(
-    "INSERT INTO respostas (alunoId, quizId, resposta, correto) VALUES (?, ?, ?, ?)",
-    [alunoId, quizId, resposta, correto ? 1 : 0]
-  );
-
-  res.json({ correto });
+    const data = await response.json();
+    res.json(data);
+  } catch (error) {
+    console.error("Erro HuggingFace:", error);
+    res.status(500).json({ error: "Erro ao conectar com HuggingFace" });
+  }
 });
 
-// Inicia servidor
-initDB().then(() => {
-  app.listen(PORT, () => {
-    console.log(`Servidor rodando na porta ${PORT}`);
-  });
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`✅ Servidor rodando na porta ${PORT}`);
 });
