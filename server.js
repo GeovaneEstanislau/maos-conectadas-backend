@@ -1,6 +1,5 @@
 import express from "express";
 import sqlite3 from "sqlite3";
-import { open } from "sqlite";
 import dotenv from "dotenv";
 import fetch from "node-fetch";
 
@@ -10,21 +9,19 @@ const app = express();
 app.use(express.json());
 
 // Inicialização do banco
-let db;
-const initDb = async () => {
-  db = await open({
-    filename: "./database.sqlite",
-    driver: sqlite3.Database
-  });
-
-  await db.exec(`
-    CREATE TABLE IF NOT EXISTS users (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT
-    );
-  `);
-};
-await initDb();
+const db = new sqlite3.Database("./database.sqlite", (err) => {
+  if (err) {
+    console.error("❌ Erro ao abrir o banco:", err.message);
+  } else {
+    console.log("✅ Banco conectado!");
+    db.run(`
+      CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT
+      )
+    `);
+  }
+});
 
 // Rota básica
 app.get("/", (req, res) => {
