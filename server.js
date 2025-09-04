@@ -1,57 +1,62 @@
 import express from "express";
 import sqlite3 from "sqlite3";
-import dotenv from "dotenv";
+import { open } from "sqlite";
+import cors from "cors";
 import fetch from "node-fetch";
 
-dotenv.config();
-
 const app = express();
+const PORT = process.env.PORT || 8080;
+
+// Middleware
+app.use(cors());
 app.use(express.json());
 
-// Conexão com SQLite
-const db = new sqlite3.Database("./database.sqlite", (err) => {
-  if (err) {
-    console.error("❌ Erro ao abrir o banco:", err.message);
-  } else {
-    console.log("✅ Banco conectado!");
-    db.run(`
-      CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT
-      )
-    `);
+// Conectar ao banco
+let db;
+(async () => {
+  db = await open({
+    filename: "./database.db",
+    driver: sqlite3.Database,
+  });
+  console.log("✅ Banco conectado!");
+})();
+
+// Função auxiliar para chamar a API do Hugging Face
+async function callHuggingFace(prompt) {
+  const response = await fetch("https://api-inference.huggingface.co/models/facebook/blenderbot-400M-distill", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${process.env.HF_TOKEN}`, // pegando do Railway
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ inputs: prompt }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Erro na API HF: ${response.statusText}`);
   }
-});
 
-// Rota básica
-app.get("/", (req, res) => {
-  res.send("🚀 API Mãos Conectadas funcionando!");
-});
+  const data = await response.json();
+  return data[0]?.generated_text || "Não consegui gerar resposta.";
+}
 
-// Rota de integração com HuggingFace
+// Rota de chat com IA
 app.post("/chat", async (req, res) => {
   const { message } = req.body;
+  if (!message) {
+    return res.status(400).json({ error: "Mensagem não fornecida" });
+  }
 
   try {
-    const response = await fetch("https://api-inference.huggingface.co/models/gpt2", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${process.env.HF_API_KEY}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({ inputs: message })
-    });
-
-    const data = await response.json();
-    res.json(data);
-  } catch (error) {
-    console.error("Erro HuggingFace:", error);
-    res.status(500).json({ error: "Erro ao conectar com HuggingFace" });
+    const reply = await callHuggingFace(message);
+    res.json({ reply });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Erro ao gerar resposta da IA." });
   }
 });
 
-// Porta do Railway
-const PORT = process.env.PORT || 3000;
+// Inicializar servidor
 app.listen(PORT, () => {
   console.log(`✅ Servidor rodando na porta ${PORT}`);
 });
